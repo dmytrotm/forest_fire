@@ -1,62 +1,74 @@
-import mesa
-from mesa.experimental.cell_space import OrthogonalMooreGrid
+import random
 
+from mesa import Model
+from mesa.time import RandomActivation
+from mesa.space import SingleGrid
+from mesa.datacollection import DataCollector
 from .agent import TreeCell
 
 
-class ForestFire(mesa.Model):
-    """
+class ForestFire(Model):
+    '''
     Simple Forest Fire model.
-    """
+    '''
 
-    def __init__(self, width=100, height=100, density=0.65, seed=None):
-        """
+    def __init__(self, height, width, density):
+        '''
         Create a new forest fire model.
 
         Args:
-            width, height: The size of the grid to model
+            height, width: The size of the grid to model
             density: What fraction of grid cells have a tree in them.
-        """
-        super().__init__(seed=seed)
+        '''
+        # Initialize model parameters
+        self.height = height
+        self.width = width
+        self.density = density
 
         # Set up model objects
+        self.schedule = RandomActivation(self)
+        self.grid = SingleGrid(height, width, torus=False)
 
-        self.grid = OrthogonalMooreGrid((width, height), capacity=1, random=self.random)
-        self.datacollector = mesa.DataCollector(
-            {
+        # Initialize DataCollector for collecting data
+        self.datacollector = DataCollector(
+            agent_reporters={"Condition": "condition"},
+            model_reporters={
                 "Fine": lambda m: self.count_type(m, "Fine"),
                 "On Fire": lambda m: self.count_type(m, "On Fire"),
-                "Burned Out": lambda m: self.count_type(m, "Burned Out"),
+                "Burned Out": lambda m: self.count_type(m, "Burned Out")
             }
         )
 
         # Place a tree in each cell with Prob = density
-        for cell in self.grid.all_cells:
-            if self.random.random() < density:
-                # Create a tree
-                new_tree = TreeCell(self, cell)
-                # Set all trees in the first column on fire.
-                if cell.coordinate[0] == 0:
-                    new_tree.condition = "On Fire"
-
+        for x in range(self.width):
+            for y in range(self.height):
+                if random.random() < self.density:
+                    # Create a tree
+                    new_tree = TreeCell(self, (x, y))
+                    # Set all trees in the first column on fire.
+                    if x == 0:
+                        new_tree.condition = "On Fire"
+                    self.grid[y][x] = new_tree
+                    self.schedule.add(new_tree)
         self.running = True
-        self.datacollector.collect(self)
 
     def step(self):
-        """
+        '''
         Advance the model by one step.
-        """
-        self.agents.shuffle_do("step")
-        # collect data
+        '''
+        self.schedule.step()
         self.datacollector.collect(self)
-
         # Halt if no more fire
         if self.count_type(self, "On Fire") == 0:
             self.running = False
 
     @staticmethod
     def count_type(model, tree_condition):
-        """
+        '''
         Helper method to count trees in a given condition in a given model.
-        """
-        return len(model.agents.select(lambda x: x.condition == tree_condition))
+        '''
+        count = 0
+        for tree in model.schedule.agents:
+            if tree.condition == tree_condition:
+                count += 1
+        return count
